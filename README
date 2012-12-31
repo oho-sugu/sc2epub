@@ -1,6 +1,12 @@
 = sc2epub
 convert sourcecode to epub
 
+= require
+
+pygments.rb for syntax highlighting
+https://github.com/tmm1/pygments.rb
+
+
 == install
  $ gem install sc2epub
 
