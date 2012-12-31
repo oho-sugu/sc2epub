@@ -4,6 +4,7 @@ class Sc2epub::Template
     TEMPLATE_NCX = 'ncx.tmpl'
     TEMPLATE_XHTML = 'xhtml.tmpl'
     TEMPLATE_INDEX = 'index.tmpl'
+    TEMPLATE_DIRECTORY = 'dir.tmpl'
     TEMPLATE_LINK = "<a href=\"%(url)\">%(title)</a>"
     TEMPLATE_NAVITEM = <<EOS
       <navPoint id="%(id)" playOrder="%(order)">
@@ -31,6 +32,9 @@ EOS
     def index params
         dotemplate TEMPLATE_INDEX, params
     end
+    def directory params
+        dotemplate TEMPLATE_DIRECTORY, params
+    end
     def opf params
         dotemplate TEMPLATE_OPF, params
     end
@@ -55,6 +59,9 @@ EOS
             t = template
         end
         for k,v in params
+            if v == nil
+                p params
+            end
             t = t.gsub(/%\(#{k}\)/, v)
         end
         t

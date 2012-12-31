@@ -2,11 +2,70 @@ class Sc2epub::Converter
     require 'nkf'
     require 'fileutils'
     require 'cgi'
+    require 'pygments'
+    
+    @@exttable = {
+        ".php" => "php",
+        ".lua" => "lua",
+        ".pl" => "perl",
+        ".pm" => "perl",
+        ".py" => "python",
+        ".rb" => "ruby",
+        ".asm" => "nasm",
+        ".c" => "c",
+        ".h" => "c",
+        ".cpp" => "cpp",
+        ".c++" => "cpp",
+        ".cxx" => "cpp",
+        ".hpp" => "cpp",
+        ".h++" => "cpp",
+        ".hxx" => "cpp",
+        ".f" => "fortran",
+        ".f90" => "fortran",
+        ".go" => "go",
+        ".m" => "objective-c",
+        ".mm" => "objective-c",
+        ".cs" => "csharp",
+        ".vb" => "vb.net",
+        ".cl" => "common-lisp",
+        ".erl" => "erlang",
+        ".hs" => "haskell",
+        ".groovy" => "groovy",
+        ".java" => "java",
+        ".scala" => "scala",
+        ".sh" => "bash",
+        ".bat" => "bat",
+        ".ps1" => "powershell",
+        ".sql" => "mysql",
+        ".yaml" => "yaml",
+        ".yml" => "yaml",
+        ".as" => "actionscript",
+        ".coffee" => "coffee-script",
+        ".css" => "css",
+        ".html" => "html",
+        ".htm" => "html",
+        ".xhtml" => "html",
+        ".xslt" => "xslt",
+        ".json" => "json",
+        ".js" => "javascript",
+        ".xml" => "xml",
+        ".rss" => "xml",
+        ".xsl" => "xslt"
+    }
+    CODES = {
+        NKF::JIS      => "JIS",
+        NKF::EUC      => "EUC",
+        NKF::SJIS     => "SJIS",
+        NKF::UTF8     => "UTF8",
+        NKF::BINARY   => "BINARY",
+        NKF::ASCII    => "ASCII",
+        NKF::UNKNOWN  => "UNKNOWN",
+    }
+
     def initialize env, root, output
         @root = path(root)
         @output = output
         @template = Sc2epub::Template::new
-        @dirstack = []
         @indexes = []
         @env = env
     end
@@ -27,35 +86,20 @@ class Sc2epub::Converter
     end
     def dogenerate doctitle
         output = @output
-        indexhtml = ''
         items = ''; c=0;
         nvitems = ''
         cover = File::join(File::dirname(__FILE__), 'cover.jpg')
-	#prettify = File::join(File::dirname(__FILE__), 'prettify')
-	#::FileUtils::cp_r(prettify, output)
-        ::FileUtils::cp(cover, output)
+        FileUtils::cp(cover, output)
         @indexes.each do |data|
             title = data[:name]
             link = data[:src]
-            if data[:type]==:dir && data[:level]+2<=4
-                tagname = "h" + (data[:level]+2).to_s
-            else
-                tagname = 'p'
-            end
-            indexhtml += "<#{tagname}>" + @template.link('url'=>link, 'title'=>title) + "</#{tagname}>\n"
-            if data[:type]==:file
-                items += @template.item('id'=>"item#{c+=1}", 'link'=>link)
-                nvitems += @template.navi('id'=>"navPoint-#{c}", 'order'=>c.to_s, 'link'=>link, 'title'=>title)
-            end
+            items += @template.item('id'=>"item#{c+=1}", 'link'=>link)
+            nvitems += @template.navi('id'=>"navPoint-#{c}", 'order'=>c.to_s, 'link'=>link, 'title'=>title)
         end
-        indexhtml = @template.index('title'=>'index', 'body'=>indexhtml)
         opf = @template.opf('title'=>doctitle, 'date'=>Time::now.strftime("%Y/%m/%d"),
                             'lang' => @env[:lang],
                             'items'=>items, 'author'=>@env[:author])
         ncx = @template.ncx('title'=>doctitle, 'navitems'=>nvitems)
-        open(File::join(output, 'index.html'), 'w') do |io|
-            io.write(indexhtml)
-        end
         opfpath = "#{doctitle}.opf"
         open(File::join(output, opfpath), 'w') do |io|
             io.write(opf)
@@ -76,7 +120,9 @@ class Sc2epub::Converter
         end
     end
     def dofile path
-        #ext = File::extname(path)
+        ext = File::extname(path)
+        basename = File::basename(path)
+        directoryname = File::dirname(local(path))
         #if ext == '.html' or ext == '.xhtml' or ext == '.jpg' or ext == '.gif' or ext == '.png'
         #    FileUtils::cp(path, @output)
         #    return
@@ -87,62 +133,114 @@ class Sc2epub::Converter
         if enc==NKF::BINARY
             return nil
         elsif enc!=NKF::ASCII and enc!=NKF::UTF8
-            s = NKF::nkf('-wxm0', s)
+            #p enc
+            s = NKF::nkf('-wxm0Lu', s)
+        else
+            #p 'UTF8?'+CODES[enc]
+            s = NKF::nkf('-wxm0Lu', s)
         end
         title = title(local(path))
-        s = CGI::escapeHTML(s)
-        s = @template.xhtml('title'=>local(path), 'body'=>s)
-        npath = title+".html"
-        if @dirstack.last and not @dirstack.last[:src]
-            @dirstack.last[:src] = npath
-            @indexes << @dirstack.last
+        
+        css = ''
+        if @@exttable[ext] == nil
+            s = '<pre>'+CGI::escapeHTML(s)+'</pre>'
+        else
+            s_back = Pygments.highlight(s, :lexer => @@exttable[ext], :options => {:encoding => 'utf-8'})
+            if s_back == nil
+                p 'ERROR Pygments returns nil'
+                p title
+                s = '<pre>'+CGI::escapeHTML(s)+'</pre>'
+                css = ''
+            else
+                s = s_back
+                css = Pygments.css
+            end
         end
+        
+        if directoryname=='.'
+            s = @template.xhtml('title'=>basename, 'body'=>s, 'style'=>css, 'directory'=>'/', 'parentdir'=>'index.html')
+        else
+            s = @template.xhtml('title'=>basename, 'body'=>s, 'style'=>css, 'directory'=>directoryname, 'parentdir'=>title(directoryname)+'.html')
+        end
+        npath = title+".html"
         open(File::join(output, npath), "w") do |io|
             io.write(s)
         end
-        level = @dirstack.empty? ? 1 : @dirstack.last[:level]+1
-        @indexes << {:src => npath, :name =>local(path), :type => :file, :level => level}
-        title
+        @indexes << {:src => npath, :name =>local(path), :type => :file}
     end
     def dodir dir
         return [] if File::basename(dir)=~/^\..*/
-        @dirstack.push({:name =>local(dir), :src =>nil, :path => dir,
-                           :type => :dir, :level => @dirstack.size})
-        cache = {}
-        until(@dirstack.empty?)
-            dir = @dirstack.last[:path]
-            subdir = nil
-            Dir::foreach(dir) do |i|
-                next if i=="."||i==".."
-                path = File::join(dir, i)
-                next if cache[path]
-                if FileTest::directory? path
-                    subdir = path unless subdir
-                elsif FileTest::file? path
-                    dofile(path)
-                    cache[path] = true
-                end
-            end
-            if !subdir
-                done = @dirstack.pop
-                cache[done[:path]] = true
-            else
-                path = subdir
-                @dirstack.push({:name =>local(path), :src =>nil, :path => path,
-                                   :type => :dir, :level => @dirstack.size})
-            end
-        end
-    end
-    def doroot dir
-        dir = path(dir)
+        direntry = []
+
+        @indexes << {:src => title(local(dir))+'.html', :name => local(dir), :type=>:dir}
+
         Dir::foreach(dir) do |i|
             next if i=="."||i==".."
             path = File::join(dir, i)
             if FileTest::directory? path
                 dodir(path)
+                type=:dir
             elsif FileTest::file? path
                 dofile(path)
+                type=:file
             end
+            direntry.push({:name => i, :target => title(local(path))+'.html', :type => type})
+        end
+
+        # make DIR.html
+        output = @output
+        html = ''
+        direntry.each do |data|
+            title = data[:name]
+            link = data[:target]
+            if data[:type]==:dir
+                title = title + '/'
+            end
+            html += "<p>" + @template.link('url'=>link, 'title'=>title) + "</p>\n"
+        end
+        if local(File::dirname(dir)) == ''
+            parentdir = 'index.html'
+            parentname = '/'
+        else
+            parentdir = title(local(File::dirname(dir)))+'.html'
+            parentname = File::basename(File::dirname(dir))
+        end
+        html = @template.directory('title'=>File::basename(dir)+'/', 'body'=>html, 'parentdir'=>parentdir, 'parentname'=>parentname)
+        open(File::join(output, title(local(dir))+'.html'), 'w') do |io|
+            io.write(html)
+        end
+    end
+    def doroot dir
+        dir = path(dir)
+        root = []
+
+        Dir::foreach(dir) do |i|
+            next if i=="."||i==".."
+            path = File::join(dir, i)
+            if FileTest::directory? path
+                dodir(path)
+                type=:dir
+            elsif FileTest::file? path
+                dofile(path)
+                type=:file
+            end
+            root.push({:name => i, :target => title(local(path))+'.html', :type => type})
+        end
+
+        # make index.html
+        output = @output
+        indexhtml = ''
+        root.each do |data|
+            title = data[:name]
+            link = data[:target]
+            if data[:type]==:dir
+                title = title + '/'
+            end
+            indexhtml += "<p>" + @template.link('url'=>link, 'title'=>title) + "</p>\n"
+        end
+        indexhtml = @template.index('title'=>'index', 'body'=>indexhtml)
+        open(File::join(output, 'index.html'), 'w') do |io|
+            io.write(indexhtml)
         end
     end
 end
